@@ -16,8 +16,9 @@ import (
 
 func main() {
 	a := app.New()
-	w := a.NewWindow("blur-collection-holders")
+	w := a.NewWindow("blur collection ownerships")
 	w.SetMaster()
+	w.Resize(fyne.NewSize(500, 0))
 
 	collectionAddress := widget.NewEntry()
 	collectionAddress.SetPlaceHolder("collection address")
@@ -36,6 +37,7 @@ func main() {
 		"show",
 		func() {
 			tableWindow := a.NewWindow(fmt.Sprintf("%s holders", collectionAddress.Text))
+			tableWindow.Resize(fyne.NewSize(500, 250))
 
 			ownerships, err = blurClient.GetCollectionOwnerships(collectionAddress.Text)
 			if err != nil {
