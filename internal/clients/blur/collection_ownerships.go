@@ -12,6 +12,7 @@ import (
 )
 
 const (
+	blurCollectionURL           = "https://core-api.prod.blur.io/v1/collections/%s"
 	blurCollectionOwnershipsURL = "https://core-api.prod.blur.io/v1/collections/%s/ownerships"
 )
 
@@ -37,7 +38,6 @@ func NewClient() (*Client, error) {
 }
 
 type CollectionOwnerships struct {
-	Success    bool `json:"success"`
 	Ownerships []struct {
 		OwnerAddress string `json:"ownerAddress"`
 		NumberOwned  int    `json:"numberOwned"`
@@ -74,4 +74,44 @@ func (c *Client) GetCollectionOwnerships(collectionAddress string) (CollectionOw
 	}
 
 	return *data, nil
+}
+
+type CollectionName struct {
+	Collection struct {
+		Name string `json:"name"`
+	} `json:"collection"`
+}
+
+func (c *Client) GetCollectionNameByAddress(collectionAddress string) (string, error) {
+	req, err := http.NewRequest(http.MethodGet, fmt.Sprintf(blurCollectionURL, collectionAddress), nil)
+	if err != nil {
+		return "", err
+	}
+
+	req.Header = http.Header{
+		"user-agent": {"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/100.0.4896.75 Safari/537.36"},
+	}
+
+	resp, err := c.Do(req)
+	if err != nil {
+		return "", err
+	}
+
+	defer resp.Body.Close()
+
+	if resp.StatusCode != 200 {
+		log.Println(fmt.Sprintf("status code: %d", resp.StatusCode))
+	}
+
+	readBytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", err
+	}
+
+	data := new(CollectionName)
+	if err := json.Unmarshal(readBytes, data); err != nil {
+		return "", err
+	}
+
+	return data.Collection.Name, nil
 }
