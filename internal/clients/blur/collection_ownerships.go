@@ -61,7 +61,9 @@ func (c *Client) GetCollectionOwnerships(collectionAddress string) (CollectionOw
 
 	defer resp.Body.Close()
 
-	log.Println(fmt.Sprintf("status code: %d", resp.StatusCode))
+	if resp.StatusCode != 200 {
+		log.Println(fmt.Sprintf("status code: %d", resp.StatusCode))
+	}
 
 	readBytes, err := io.ReadAll(resp.Body)
 	if err != nil {
