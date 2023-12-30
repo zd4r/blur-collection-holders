@@ -37,6 +37,20 @@ func main() {
 
 	addressStore := address.NewMap()
 
+	// proxy input
+	proxy := widget.NewEntry()
+	proxy.SetPlaceHolder("http://user:pass@host:port")
+	proxy.OnChanged = func(s string) {
+		if err := blurClient.SetProxy(proxy.Text); err != nil {
+			dialog.ShowInformation(
+				"error occurred",
+				err.Error(),
+				w,
+			)
+			return
+		}
+	}
+
 	// collection input
 	var (
 		ownershipsFiltered []ownership
@@ -45,7 +59,7 @@ func main() {
 	collectionAddress := widget.NewEntry()
 	collectionAddress.SetPlaceHolder("collection address")
 
-	showHoldersTableButton := widget.NewButton(
+	showOwnershipsTableButton := widget.NewButton(
 		"show",
 		func() {
 			collectionName, err := blurClient.GetCollectionNameByAddress(collectionAddress.Text)
@@ -119,11 +133,11 @@ func main() {
 	// tracked addresses input
 	ethereumAddressRexExp := regexp.MustCompile(ethereumAddressPattern)
 
-	multiLineEntry := widget.NewMultiLineEntry()
-	multiLineEntry.SetPlaceHolder("tracked addresses")
+	trackedAddresses := widget.NewMultiLineEntry()
+	trackedAddresses.SetPlaceHolder("tracked addresses")
 
-	multiLineEntry.OnChanged = func(s string) {
-		matches := ethereumAddressRexExp.FindAllString(multiLineEntry.Text, -1)
+	trackedAddresses.OnChanged = func(s string) {
+		matches := ethereumAddressRexExp.FindAllString(trackedAddresses.Text, -1)
 		for _, addr := range matches {
 			addressStore.Set(addr)
 		}
@@ -134,8 +148,8 @@ func main() {
 		container.New(
 			layout.NewGridLayout(2),
 			collectionAddress,
-			showHoldersTableButton,
-		), nil, nil, nil, multiLineEntry,
+			showOwnershipsTableButton,
+		), proxy, nil, nil, trackedAddresses,
 	)
 
 	w.SetContent(pageLayout)
