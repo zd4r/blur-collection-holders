@@ -1,6 +1,9 @@
 package address
 
-import "sync"
+import (
+	"sort"
+	"sync"
+)
 
 type Map struct {
 	sync.RWMutex
@@ -27,4 +30,26 @@ func (m *Map) Exists(address string) bool {
 	_, ok := m.m[address]
 
 	return ok
+}
+
+func (m *Map) Clear() {
+	m.RLock()
+	defer m.RUnlock()
+
+	clear(m.m)
+}
+
+func (m *Map) GetAll() []string {
+	m.RLock()
+	defer m.RUnlock()
+
+	keys := make([]string, 0, len(m.m))
+
+	for key, _ := range m.m {
+		keys = append(keys, key)
+	}
+
+	sort.Strings(keys)
+
+	return keys
 }

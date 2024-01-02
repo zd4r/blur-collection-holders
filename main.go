@@ -1,23 +1,29 @@
 package main
 
 import (
+	"fmt"
 	"log"
 	"regexp"
-	"strconv"
+	"strings"
+	"time"
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/app"
 	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/dialog"
-	"fyne.io/fyne/v2/layout"
 	"fyne.io/fyne/v2/widget"
 	"github.com/zd4r/blur-collection-holders/internal/clients/blur"
 	"github.com/zd4r/blur-collection-holders/internal/store/address"
+	collectionNameCache "github.com/zd4r/blur-collection-holders/internal/store/collection"
 )
 
 var (
 	ethereumAddressPattern = `0x[a-fA-F0-9]{40}`
 )
+
+type collection struct {
+	ownerships []ownership
+}
 
 type ownership struct {
 	OwnerAddress string
@@ -28,14 +34,149 @@ func main() {
 	a := app.New()
 	w := a.NewWindow("blur collection ownerships")
 	w.SetMaster()
-	w.Resize(fyne.NewSize(500, 0))
+	w.Resize(fyne.NewSize(750, 500))
 
+	// blur clients
 	blurClient, err := blur.NewClient()
 	if err != nil {
 		log.Fatalf("failed to create blur client: %s", err.Error())
 	}
 
-	addressStore := address.NewMap()
+	// address stores
+	EOAStore := address.NewMap()
+	CAStore := address.NewMap()
+	collectionNamesCache := collectionNameCache.NewMap()
+
+	// ethereum address regexp
+	ethereumAddressRexExp := regexp.MustCompile(ethereumAddressPattern)
+
+	// main page tree
+	collections := make(map[string]collection)
+
+	tree := widget.NewTree(
+		func(id widget.TreeNodeID) []widget.TreeNodeID {
+			switch {
+			case id == "":
+				return CAStore.GetAll()
+			case CAStore.Exists(id):
+				children := make([]widget.TreeNodeID, 0, len(collections[id].ownerships))
+				for _, own := range collections[id].ownerships {
+					children = append(children, fmt.Sprintf("%s:%d", own.OwnerAddress, own.NumberOwned))
+				}
+
+				return children
+			}
+
+			return []string{}
+		},
+		func(id widget.TreeNodeID) bool {
+			return id == "" || CAStore.Exists(id)
+		},
+		func(branch bool) fyne.CanvasObject {
+			if branch {
+				return widget.NewLabel("")
+			}
+			return container.NewBorder(
+				nil, nil,
+				widget.NewLabel(""),
+				widget.NewLabel(""),
+			)
+		},
+		func(id widget.TreeNodeID, branch bool, o fyne.CanvasObject) {
+			if branch {
+				o.(*widget.Label).SetText(collectionNamesCache.Get(id))
+				return
+			}
+			parts := strings.Split(id, ":")
+			addr, num := parts[0], parts[1]
+
+			c := o.(*fyne.Container)
+			l1 := c.Objects[0].(*widget.Label)
+			l1.SetText(addr)
+
+			l2 := c.Objects[1].(*widget.Label)
+			l2.SetText(num)
+		})
+
+	// cookie input
+	cookie := widget.NewPasswordEntry()
+	cookie.SetPlaceHolder("authToken=?; walletAddress=?;")
+
+	// fetch button
+	fetchButton := widget.NewButton("fetch", func() {})
+	fetchButton.OnTapped = func() {
+		fetchButton.Disable()
+		defer fetchButton.Enable()
+		defer func() {
+			fetchButton.Text = fmt.Sprintf("fetch (%s)", time.Now().UTC().Local().Format("2006-01-02 15:04:05"))
+		}()
+
+		leaderboard, err := blurClient.GetLeaderboard(cookie.Text)
+		if err != nil {
+			dialog.ShowInformation(
+				"error occurred",
+				err.Error(),
+				w,
+			)
+			return
+		}
+
+		EOAStore.Clear()
+
+		for _, trader := range leaderboard.Traders {
+			if trader.Username != nil {
+				EOAStore.Set(*trader.Username)
+				continue
+			}
+			EOAStore.Set(strings.ToLower(trader.WalletAddress))
+		}
+
+		for _, addr := range CAStore.GetAll() {
+			ownerships, err := blurClient.GetCollectionOwnerships(addr)
+			if err != nil {
+				dialog.ShowInformation(
+					"error occurred",
+					err.Error(),
+					w,
+				)
+				return
+			}
+
+			collections[addr] = collection{
+				ownerships: filterOwnerships(ownerships, EOAStore),
+			}
+
+			tree.Refresh()
+		}
+	}
+
+	// collections addresses input
+	collectionAddresses := widget.NewMultiLineEntry()
+	collectionAddresses.SetPlaceHolder("collection addresses")
+
+	collectionAddresses.OnChanged = func(s string) {
+		CAStore.Clear()
+
+		matches := ethereumAddressRexExp.FindAllString(collectionAddresses.Text, -1)
+		for _, addr := range matches {
+			CAStore.Set(strings.ToLower(addr))
+
+			if !collectionNamesCache.Exists(addr) {
+				collectionName, err := blurClient.GetCollectionNameByAddress(addr)
+				if err != nil {
+					dialog.ShowInformation(
+						"error occurred",
+						err.Error(),
+						w,
+					)
+				}
+
+				collectionNamesCache.Set(addr, collectionName)
+			}
+		}
+
+		tree.Refresh()
+	}
 
 	// proxy input
 	proxy := widget.NewEntry()
@@ -51,108 +192,31 @@ func main() {
 		}
 	}
 
-	// collection input
-	var (
-		ownershipsFiltered []ownership
-	)
-
-	collectionAddress := widget.NewEntry()
-	collectionAddress.SetPlaceHolder("collection address")
-
-	showOwnershipsTableButton := widget.NewButton(
-		"show",
-		func() {
-			collectionName, err := blurClient.GetCollectionNameByAddress(collectionAddress.Text)
-			if err != nil {
-				dialog.ShowInformation(
-					"error occurred",
-					err.Error(),
-					w,
-				)
-				return
-			}
-
-			tableWindow := a.NewWindow(collectionName)
-			tableWindow.Resize(fyne.NewSize(500, 250))
-
-			ownerships, err := blurClient.GetCollectionOwnerships(collectionAddress.Text)
-			if err != nil {
-				dialog.ShowInformation(
-					"error occurred",
-					err.Error(),
-					w,
-				)
-				return
-			}
-			ownershipsFiltered = filterOwnerships(ownerships, addressStore)
-
-			tableWindow.SetContent(
-				container.NewBorder(
-					widget.NewButton(
-						"refresh",
-						func() {
-							ownerships, err = blurClient.GetCollectionOwnerships(collectionAddress.Text)
-							if err != nil {
-								dialog.ShowInformation(
-									"error occurred",
-									err.Error(),
-									w,
-								)
-								return
-							}
-							ownershipsFiltered = filterOwnerships(ownerships, addressStore)
-						},
-					),
-					nil, nil, nil,
-					widget.NewList(
-						func() int {
-							return len(ownershipsFiltered)
-						},
-						func() fyne.CanvasObject {
-							return container.NewBorder(
-								nil, nil,
-								widget.NewLabel(""),
-								widget.NewLabel(""),
-							)
-						},
-						func(id widget.ListItemID, o fyne.CanvasObject) {
-							c := o.(*fyne.Container)
-							l1 := c.Objects[0].(*widget.Label)
-							l1.SetText(ownershipsFiltered[id].OwnerAddress)
-
-							l2 := c.Objects[1].(*widget.Label)
-							l2.SetText(strconv.Itoa(ownershipsFiltered[id].NumberOwned))
-						}),
+	// tabs
+	tabs := container.NewAppTabs(
+		container.NewTabItem(
+			"ownerships",
+			container.NewBorder(
+				nil,
+				fetchButton,
+				nil, nil,
+				tree,
+			),
+		),
+		container.NewTabItem(
+			"settings",
+			container.NewBorder(
+				nil,
+				container.NewVBox(cookie, proxy,
+					fetchButton,
 				),
-			)
-
-			tableWindow.Show()
-		},
+				nil, nil,
+				collectionAddresses,
+			),
+		),
 	)
 
-	// tracked addresses input
-	ethereumAddressRexExp := regexp.MustCompile(ethereumAddressPattern)
-
-	trackedAddresses := widget.NewMultiLineEntry()
-	trackedAddresses.SetPlaceHolder("tracked addresses")
-
-	trackedAddresses.OnChanged = func(s string) {
-		matches := ethereumAddressRexExp.FindAllString(trackedAddresses.Text, -1)
-		for _, addr := range matches {
-			addressStore.Set(addr)
-		}
-	}
-
-	// page layout
-	pageLayout := container.NewBorder(
-		container.New(
-			layout.NewGridLayout(2),
-			collectionAddress,
-			showOwnershipsTableButton,
-		), proxy, nil, nil, trackedAddresses,
-	)
-
-	w.SetContent(pageLayout)
+	w.SetContent(tabs)
 
 	w.ShowAndRun()
 }

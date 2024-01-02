@@ -14,6 +14,7 @@ import (
 const (
 	blurCollectionURL           = "https://core-api.prod.blur.io/v1/collections/%s"
 	blurCollectionOwnershipsURL = "https://core-api.prod.blur.io/v1/collections/%s/ownerships"
+	blurLeaderboardURL          = "https://core-api.prod.blur.io/v1/rewards/leaderboard"
 )
 
 type Client struct {
@@ -62,7 +63,7 @@ func (c *Client) GetCollectionOwnerships(collectionAddress string) (CollectionOw
 	defer resp.Body.Close()
 
 	if resp.StatusCode != 200 {
-		log.Println(fmt.Sprintf("status code: %d", resp.StatusCode))
+		log.Println(fmt.Sprintf("[%s] bad status code: %d", "GetCollectionOwnerships", resp.StatusCode))
 	}
 
 	readBytes, err := io.ReadAll(resp.Body)
@@ -102,7 +103,7 @@ func (c *Client) GetCollectionNameByAddress(collectionAddress string) (string, e
 	defer resp.Body.Close()
 
 	if resp.StatusCode != 200 {
-		log.Println(fmt.Sprintf("status code: %d", resp.StatusCode))
+		log.Println(fmt.Sprintf("[%s] bad status code: %d", "GetCollectionNameByAddress", resp.StatusCode))
 	}
 
 	readBytes, err := io.ReadAll(resp.Body)
@@ -116,4 +117,46 @@ func (c *Client) GetCollectionNameByAddress(collectionAddress string) (string, e
 	}
 
 	return data.Collection.Name, nil
+}
+
+type Leaderboard struct {
+	Traders []struct {
+		WalletAddress string  `json:"walletAddress"`
+		Username      *string `json:"username"`
+	} `json:"traders"`
+}
+
+func (c *Client) GetLeaderboard(cookie string) (Leaderboard, error) {
+	req, err := http.NewRequest(http.MethodGet, blurLeaderboardURL, nil)
+	if err != nil {
+		return Leaderboard{}, err
+	}
+
+	req.Header = http.Header{
+		"user-agent": {"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/100.0.4896.75 Safari/537.36"},
+		"cookie":     {cookie},
+	}
+
+	resp, err := c.Do(req)
+	if err != nil {
+		return Leaderboard{}, err
+	}
+
+	defer resp.Body.Close()
+
+	if resp.StatusCode != 200 {
+		log.Println(fmt.Sprintf("[%s] bad status code: %d", "GetLeaderboard", resp.StatusCode))
+	}
+
+	readBytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return Leaderboard{}, err
+	}
+
+	data := new(Leaderboard)
+	if err := json.Unmarshal(readBytes, data); err != nil {
+		return Leaderboard{}, err
+	}
+
+	return *data, nil
 }
