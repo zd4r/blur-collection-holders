@@ -19,6 +19,7 @@ import (
 
 var (
 	ethereumAddressPattern = `0x[a-fA-F0-9]{40}`
+	addressToENS           = make(map[string]string)
 )
 
 type collection struct {
@@ -78,7 +79,7 @@ func main() {
 			}
 			return container.NewBorder(
 				nil, nil,
-				widget.NewLabel(""),
+				widget.NewHyperlink("", nil),
 				widget.NewLabel(""),
 			)
 		},
@@ -91,8 +92,13 @@ func main() {
 			addr, num := parts[0], parts[1]
 
 			c := o.(*fyne.Container)
-			l1 := c.Objects[0].(*widget.Label)
-			l1.SetText(addr)
+			l1 := c.Objects[0].(*widget.Hyperlink)
+			if ens, ok := addressToENS[addr]; ok {
+				l1.SetText(ens)
+			} else {
+				l1.SetText(addr)
+			}
+			_ = l1.SetURLFromString(fmt.Sprintf("https://blur.io/%s", addr))
 
 			l2 := c.Objects[1].(*widget.Label)
 			l2.SetText(num)
@@ -125,8 +131,7 @@ func main() {
 
 		for _, trader := range leaderboard.Traders {
 			if trader.Username != nil {
-				EOAStore.Set(*trader.Username)
-				continue
+				addressToENS[trader.WalletAddress] = *trader.Username
 			}
 			EOAStore.Set(strings.ToLower(trader.WalletAddress))
 		}
